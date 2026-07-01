@@ -1,5 +1,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,11 +12,21 @@ app.use((req, res, next) => {
 
 let cachedUrls = [];
 let lastFetch = 0;
-const CACHE_TTL = 60 * 1000; // 1 minute cache
+const CACHE_TTL = 60 * 1000;
 
 async function scrapeUrls() {
   const browser = await puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 
+      '/opt/render/.cache/puppeteer/chrome/linux-148.0.7778.97/chrome-linux64/chrome',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process'
+    ],
     headless: true
   });
   try {
@@ -29,9 +40,11 @@ async function scrapeUrls() {
       }
     });
 
-    await page.goto('https://fifalive.site/', { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto('https://fifalive.site/', { 
+      waitUntil: 'networkidle2', 
+      timeout: 30000 
+    });
 
-    // Click Server 2
     await page.evaluate(() => {
       const btns = document.querySelectorAll('button, a, div');
       for (const btn of btns) {
