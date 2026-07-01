@@ -1,7 +1,6 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
+const puppeteer = require('puppeteer-core');
+const chromium = require('chrome-aws-lambda');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,47 +10,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Find Chrome executable automatically
-function findChrome() {
-  const basePath = '/opt/render/.cache/puppeteer/chrome';
-  try {
-    if (!fs.existsSync(basePath)) return null;
-    const versions = fs.readdirSync(basePath);
-    for (const ver of versions) {
-      const chromePath = path.join(basePath, ver, 'chrome-linux64', 'chrome');
-      if (fs.existsSync(chromePath)) return chromePath;
-    }
-  } catch(e) {}
-  return null;
-}
-
-app.get('/chrome-path', (req, res) => {
-  const p = findChrome();
-  const basePath = '/opt/render/.cache/puppeteer/chrome';
-  let dirs = [];
-  try { dirs = fs.readdirSync(basePath); } catch(e) {}
-  res.json({ found: p, dirs, basePath });
-});
-
 app.get('/get-url', async (req, res) => {
   try {
-    const chromePath = findChrome();
-    if (!chromePath) {
-      return res.json({ success: false, message: 'Chrome not found', dirs: (() => { try { return fs.readdirSync('/opt/render/.cache/puppeteer/chrome'); } catch(e) { return []; } })() });
-    }
-
     const browser = await puppeteer.launch({
-      executablePath: chromePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process'
-      ],
-      headless: true
+      args: chromium.args,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
@@ -62,12 +26,18 @@ app.get('/get-url', async (req, res) => {
       if (u.includes('oolcaykarael')) urls.add(u);
     });
 
-    await page.goto('https://fifalive.site/', { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto('https://fifalive.site/', {
+      waitUntil: 'networkidle2',
+      timeout: 30000
+    });
 
     await page.evaluate(() => {
       const btns = document.querySelectorAll('button, a, div');
       for (const btn of btns) {
-        if (btn.textContent.trim() === 'Server 2') { btn.click(); break; }
+        if (btn.textContent.trim() === 'Server 2') {
+          btn.click();
+          break;
+        }
       }
     });
 
