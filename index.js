@@ -1,5 +1,6 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
+const fs = require('fs');
 const path = require('path');
 
 const app = express();
@@ -10,71 +11,72 @@ app.use((req, res, next) => {
   next();
 });
 
-let cachedUrls = [];
-let lastFetch = 0;
-const CACHE_TTL = 60 * 1000;
-
-async function scrapeUrls() {
-  const browser = await puppeteer.launch({
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || 
-      '/opt/render/.cache/puppeteer/chrome/linux-148.0.7778.97/chrome-linux64/chrome',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process'
-    ],
-    headless: true
-  });
+// Find Chrome executable automatically
+function findChrome() {
+  const basePath = '/opt/render/.cache/puppeteer/chrome';
   try {
+    if (!fs.existsSync(basePath)) return null;
+    const versions = fs.readdirSync(basePath);
+    for (const ver of versions) {
+      const chromePath = path.join(basePath, ver, 'chrome-linux64', 'chrome');
+      if (fs.existsSync(chromePath)) return chromePath;
+    }
+  } catch(e) {}
+  return null;
+}
+
+app.get('/chrome-path', (req, res) => {
+  const p = findChrome();
+  const basePath = '/opt/render/.cache/puppeteer/chrome';
+  let dirs = [];
+  try { dirs = fs.readdirSync(basePath); } catch(e) {}
+  res.json({ found: p, dirs, basePath });
+});
+
+app.get('/get-url', async (req, res) => {
+  try {
+    const chromePath = findChrome();
+    if (!chromePath) {
+      return res.json({ success: false, message: 'Chrome not found', dirs: (() => { try { return fs.readdirSync('/opt/render/.cache/puppeteer/chrome'); } catch(e) { return []; } })() });
+    }
+
+    const browser = await puppeteer.launch({
+      executablePath: chromePath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process'
+      ],
+      headless: true
+    });
+
     const page = await browser.newPage();
     const urls = new Set();
 
     page.on('request', req => {
       const u = req.url();
-      if (u.includes('oolcaykarael') && u.includes('/')) {
-        urls.add(u);
-      }
+      if (u.includes('oolcaykarael')) urls.add(u);
     });
 
-    await page.goto('https://fifalive.site/', { 
-      waitUntil: 'networkidle2', 
-      timeout: 30000 
-    });
+    await page.goto('https://fifalive.site/', { waitUntil: 'networkidle2', timeout: 30000 });
 
     await page.evaluate(() => {
       const btns = document.querySelectorAll('button, a, div');
       for (const btn of btns) {
-        if (btn.textContent.trim() === 'Server 2') {
-          btn.click();
-          break;
-        }
+        if (btn.textContent.trim() === 'Server 2') { btn.click(); break; }
       }
     });
 
     await new Promise(r => setTimeout(r, 5000));
-
-    return [...urls];
-  } finally {
     await browser.close();
-  }
-}
 
-app.get('/get-url', async (req, res) => {
-  try {
-    const now = Date.now();
-    if (cachedUrls.length > 0 && now - lastFetch < CACHE_TTL) {
-      return res.json({ success: true, urls: cachedUrls });
-    }
-
-    const urls = await scrapeUrls();
-    if (urls.length > 0) {
-      cachedUrls = urls;
-      lastFetch = now;
-      res.json({ success: true, urls });
+    const result = [...urls];
+    if (result.length > 0) {
+      res.json({ success: true, urls: result });
     } else {
       res.json({ success: false, message: 'কোনো URL পাওয়া যায়নি' });
     }
@@ -84,5 +86,4 @@ app.get('/get-url', async (req, res) => {
 });
 
 app.get('/', (req, res) => res.send('FIFA Scraper Running!'));
-
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
